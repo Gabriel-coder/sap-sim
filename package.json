@@ -1,0 +1,8 @@
+{
+  "name": "sap-sim",
+  "version": "1.0.0",
+  "main": "server.js",
+  "type": "module",
+  "dependencies": { "express": "^4.19.2", "ioredis": "^5.4.1" },
+  "scripts": { "start": "node server.js", "test": "echo \"(no tests)\" && exit 0" }
+}
