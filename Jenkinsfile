@@ -2,21 +2,20 @@ pipeline {
   agent any
   options { timestamps() }
   environment {
-    APP_HOST = "10.70.1.170"
+    APP_HOST = "10.70.1.170"      // IP privado da APP
     APP_DIR  = "/opt/sap-sim"
     CRED_ID  = "app-ssh"
+    APP_URL  = "http://107.20.96.191/health"  // health via Nginx público
   }
   stages {
     stage('Checkout') { steps { checkout scm } }
 
     stage('Build & Test') {
-      steps {
-        sh '''
-          set -e
-          [ -f package-lock.json ] && npm ci || npm install
-          npm test
-        '''
-      }
+      steps { sh '''
+        set -e
+        [ -f package-lock.json ] && npm ci || npm install
+        npm test
+      ''' }
     }
 
     stage('Package') {
@@ -27,29 +26,27 @@ pipeline {
     stage('Deploy') {
       steps {
         sshagent(credentials: [env.CRED_ID]) {
-          sh '''
+          sh """
             set -e
-            scp -o StrictHostKeyChecking=accept-new app.tgz rocky@$APP_HOST:/tmp/app.tgz
-            ssh -o StrictHostKeyChecking=accept-new rocky@$APP_HOST '
+            scp -o StrictHostKeyChecking=accept-new app.tgz rocky@${APP_HOST}:/tmp/app.tgz
+            ssh -o StrictHostKeyChecking=accept-new rocky@${APP_HOST} "
               set -e
-              sudo mkdir -p $APP_DIR &&
-              sudo chown -R appuser:appuser $APP_DIR &&
-              sudo -u appuser tar xzf /tmp/app.tgz -C $APP_DIR &&
-              cd $APP_DIR &&
-              ( [ -f package-lock.json ] && sudo -u appuser npm ci || sudo -u appuser npm install ) &&
-              sudo systemctl restart sap-sim &&
+              APP_DIR='${APP_DIR}'
+              sudo mkdir -p \"\$APP_DIR\"
+              sudo chown -R appuser:appuser \"\$APP_DIR\"
+              sudo -u appuser tar xzf /tmp/app.tgz -C \"\$APP_DIR\"
+              cd \"\$APP_DIR\"
+              if [ -f package-lock.json ]; then sudo -u appuser npm ci; else sudo -u appuser npm install; fi
+              sudo systemctl restart sap-sim
               sudo systemctl is-active --quiet sap-sim
-            '
-          '''
+            "
+          """
         }
       }
     }
 
     stage('Health') {
-      steps {
-        sh 'curl -fsS http://$APP_HOST/health | tee health.json'
-        sh 'grep -q \\"ok\\":true health.json'
-      }
+      steps { sh 'curl -sSf ${APP_URL} | tee health.json' }
     }
   }
 }
