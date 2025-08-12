@@ -2,7 +2,7 @@ pipeline {
   agent any
   options { timestamps() }
   environment {
-    APP_HOST = "107.20.96.191"
+    APP_HOST = "10.70.1.170"
     APP_DIR  = "/opt/sap-sim"
     CRED_ID  = "app-ssh"
   }
