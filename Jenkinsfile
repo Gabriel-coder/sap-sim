@@ -44,15 +44,12 @@ pipeline {
               cd "$APP_DIR"
               if [ -f package-lock.json ]; then sudo -u appuser npm ci; else sudo -u appuser npm install; fi
 
-              # injeta versão no systemd
               echo APP_VERSION='${APP_VERSION}' | sudo tee /etc/sap-sim.env >/dev/null
               sudo mkdir -p /etc/systemd/system/sap-sim.service.d
               printf "[Service]\nEnvironmentFile=/etc/sap-sim.env\n" | sudo tee /etc/systemd/system/sap-sim.service.d/10-env.conf >/dev/null
 
               sudo systemctl daemon-reload
               sudo systemctl restart sap-sim
-
-              # espera a app abrir a 3000
               for i in {1..30}; do sudo ss -lntp | grep -q ":3000" && break; sleep 1; done
               sudo systemctl is-active --quiet sap-sim
             '
@@ -63,25 +60,27 @@ pipeline {
 
     stage('Health') {
       steps {
-        sh '''
-          set -euo pipefail
+        sshagent (credentials: [ "${CRED_ID}" ]) {
+          sh '''
+            set -euo pipefail
 
-          # 1) check local na própria EC2 (evita falso negativo de rede)
-          ssh -o StrictHostKeyChecking=accept-new rocky@${APP_HOST} "curl -sSf http://localhost:3000/health >/dev/null"
+            # 1) checagem local dentro da EC2
+            ssh -o StrictHostKeyChecking=accept-new rocky@${APP_HOST} "curl -sSf http://localhost:3000/health >/dev/null"
 
-          # 2) check público (Nginx) com retry por 2 minutos
-          PUB="${APP_PUBLIC}/health"
-          for i in {1..24}; do
-            code=$(curl -s -o health.json -w '%{http_code}' "$PUB" || true)
-            if [ "$code" = "200" ]; then
-              cat health.json
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "Healthcheck falhou em '$PUB' (último status: $code)"
-          exit 1
-        '''
+            # 2) checagem pública (Nginx) com retry por até 2 min
+            PUB="${APP_PUBLIC}/health"
+            for i in {1..24}; do
+              code=$(curl -s -o health.json -w '%{http_code}' "$PUB" || true)
+              if [ "$code" = "200" ]; then
+                cat health.json
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "Healthcheck falhou em '$PUB' (último status: $code)"
+            exit 1
+          '''
+        }
       }
       post { always { archiveArtifacts artifacts: 'health.json', allowEmptyArchive: true } }
     }
