@@ -32,7 +32,7 @@ pipeline {
           sh """
             set -euo pipefail
             GIT_SHORT=\$(git rev-parse --short HEAD)
-            APP_VERSION="build-\${BUILD_NUMBER}-\$(date -u +%Y%m%d-%H%M)-\${GIT_SHORT}"
+            APP_VERSION="build-${BUILD_NUMBER}-\$(date -u +%Y%m%d-%H%M)-\${GIT_SHORT}"
 
             scp -o StrictHostKeyChecking=accept-new app.tgz rocky@${APP_HOST}:/tmp/app.tgz
             ssh -o StrictHostKeyChecking=accept-new rocky@${APP_HOST} "
@@ -44,17 +44,15 @@ pipeline {
               cd \"\$APP_DIR\"
               if [ -f package-lock.json ]; then sudo -u appuser npm ci; else sudo -u appuser npm install; fi
 
-              # escreve versão do build para o systemd injetar como env
-              echo APP_VERSION='${APP_VERSION}' | sudo tee /etc/sap-sim.env >/dev/null
+              # grava versão para o systemd ler
+              echo \"APP_VERSION=\${APP_VERSION}\" | sudo tee /etc/sap-sim.env >/dev/null
 
-              # drop-in do systemd para ler o arquivo de env
+              # drop-in do systemd para carregar a env
               sudo mkdir -p /etc/systemd/system/sap-sim.service.d
               printf '[Service]\nEnvironmentFile=/etc/sap-sim.env\n' | sudo tee /etc/systemd/system/sap-sim.service.d/10-env.conf >/dev/null
 
               sudo systemctl daemon-reload
               sudo systemctl restart sap-sim
-
-              # espera a porta subir
               for i in {1..10}; do sudo ss -lntp | grep -q ':3000' && break; sleep 1; done
               sudo systemctl is-active --quiet sap-sim
             "
@@ -68,11 +66,11 @@ pipeline {
         sh '''
           set -euo pipefail
           for i in {1..12}; do
-            code=$(curl -s -o health.json -w '%{http_code}' "${APP_URL}" || true)
+            code=$(curl -s -o health.json -w '%{http_code}' "'"${APP_URL}"'" || true)
             if [ "$code" = "200" ]; then cat health.json; exit 0; fi
             sleep 5
           done
-          echo "Healthcheck falhou em ${APP_URL}" >&2; exit 1
+          echo "Healthcheck falhou em '${APP_URL}'" >&2; exit 1
         '''
       }
       post { always { archiveArtifacts artifacts: 'health.json', allowEmptyArchive: true } }
